@@ -9,6 +9,30 @@ import {
   updateDashboardPost,
 } from "./api";
 
+
+// ✅ 대시보드 상단 고정(Pinned) - 로컬 저장(다른 기능 영향 없이 UI/정렬만 제어)
+const DASHBOARD_PINNED_KEY = "uplink.dashboard.pinned_post_ids.v1";
+function _readPinnedSet(): Set<number> {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_PINNED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0));
+  } catch {
+    return new Set();
+  }
+}
+function _isPinned(id: number): boolean {
+  return _readPinnedSet().has(id);
+}
+function _setPinned(id: number, pinned: boolean) {
+  const s = _readPinnedSet();
+  if (pinned) s.add(id);
+  else s.delete(id);
+  localStorage.setItem(DASHBOARD_PINNED_KEY, JSON.stringify(Array.from(s)));
+}
+
 function formatDateTimeK(dateStr: string): string {
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return dateStr;
@@ -41,10 +65,16 @@ export default function DashboardBoardDetailPage() {
   const { postId } = useParams();
   const { user } = useAuth() as any;
 
+  const canPin = [6, 7].includes(Number(user?.role?.id ?? user?.role_id ?? user?.roleId ?? user?.role?.role_id));
+
   const id = useMemo(() => Number(postId), [postId]);
   const [data, setData] = useState<DashboardDetailOut | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+
+// ✅ 상단 고정 상태
+const [isPinned, setIsPinned] = useState(false);
 
   // edit fields (간단 수정만)
   const [editMode, setEditMode] = useState(false);
@@ -69,6 +99,8 @@ export default function DashboardBoardDetailPage() {
         setCategory(out.category);
         setTitle(out.title || "");
         setContent(out.content || "");
+        // ✅ pinned 상태(서버 우선, 없으면 로컬)
+        setIsPinned(Boolean((out as any).is_pinned ?? _isPinned(id)));
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message || String(e));
@@ -82,6 +114,14 @@ export default function DashboardBoardDetailPage() {
       alive = false;
     };
   }, [id]);
+
+
+useEffect(() => {
+  if (!Number.isFinite(id) || id <= 0) return;
+  // 서버에서 is_pinned가 오면 그 값 사용, 아니면 로컬
+  const serverPinned = (data as any)?.is_pinned;
+  setIsPinned(Boolean(serverPinned ?? _isPinned(id)));
+}, [id, data]);
 
   const createdByLabel = useMemo(() => {
     return data?.created_by_name || "-";
@@ -163,6 +203,41 @@ export default function DashboardBoardDetailPage() {
 </div>
 
         <div className="hstack" style={{ gap: 8 }}>
+
+{canPin && (
+<label style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 8px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", height: 32, fontWeight: 900 }}>
+  <input
+    type="checkbox"
+    checked={isPinned}
+    onChange={async (e) => {
+      const next = e.target.checked;
+      setIsPinned(next);
+
+      // ✅ 1) 서버 저장(공용 pinned) - 관리자/운영자만 가능
+      try {
+        const res = await fetch(`/api/dashboard/posts/${id}/pin`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ is_pinned: next }),
+        });
+        if (!res.ok) {
+          const msg = await res.text();
+          throw new Error(msg || "상단 고정 저장 실패");
+        }
+        // 서버 저장 성공 시 로컬은 백업용으로만 동기화
+        _setPinned(id, next);
+        alert(next ? "상단 고정되었습니다." : "상단 고정이 해제되었습니다.");
+      } catch (err: any) {
+        // 서버가 아직 준비 안된 경우를 대비한 로컬 백업
+        _setPinned(id, next);
+        alert((err?.message ? `${err.message}
+` : "") + (next ? "상단 고정되었습니다.(로컬)" : "상단 고정 해제되었습니다.(로컬)"));
+      }
+    }}
+  />
+  상단 고정
+</label>
+)}
           <button className="btn" onClick={() => navigate(-1)}>
             뒤로
           </button>

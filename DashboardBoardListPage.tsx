@@ -2,6 +2,24 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { fetchDashboardPosts, DashboardCategory, DashboardListItem, fetchIsAdminRoleId6, deleteDashboardPost } from "./api";
 
+
+// ✅ 대시보드 상단 고정(Pinned) - 로컬 저장 기반
+const DASHBOARD_PINNED_KEY = "uplink.dashboard.pinned_post_ids.v1";
+function _readPinnedSet(): Set<number> {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_PINNED_KEY);
+    if (!raw) return new Set();
+    const arr = JSON.parse(raw);
+    if (!Array.isArray(arr)) return new Set();
+    return new Set(arr.map((v) => Number(v)).filter((v) => Number.isFinite(v) && v > 0));
+  } catch {
+    return new Set();
+  }
+}
+function _isPinned(id: number): boolean {
+  return _readPinnedSet().has(id);
+}
+
 function formatDateK(dateStr: string): string {
   const d = new Date(dateStr);
   if (Number.isNaN(d.getTime())) return dateStr;
@@ -42,6 +60,8 @@ export default function DashboardBoardListPage() {
   const [items, setItems] = useState<DashboardListItem[]>([]);
   const [isAdmin, setIsAdmin] = useState(false);
 
+  const [pinVer, setPinVer] = useState(0);
+
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -57,6 +77,19 @@ export default function DashboardBoardListPage() {
       alive = false;
     };
   }, []);
+
+  useEffect(() => {
+  const bump = () => setPinVer((v) => v + 1);
+  const onStorage = (e: StorageEvent) => {
+    if (e.key === DASHBOARD_PINNED_KEY) bump();
+  };
+  window.addEventListener("storage", onStorage);
+  window.addEventListener("focus", bump);
+  return () => {
+    window.removeEventListener("storage", onStorage);
+    window.removeEventListener("focus", bump);
+  };
+}, []);
 
   useEffect(() => {
     let alive = true;
@@ -88,6 +121,22 @@ export default function DashboardBoardListPage() {
     if (category === "TIP") return "기술팁만 표시 중";
     return "전체 표시 중";
   }, [category]);
+
+
+const sortedItems = useMemo(() => {
+  const pinnedSet = _readPinnedSet();
+  // 기존 정렬을 최대한 유지하면서 pinned만 상단으로
+  return [...items].sort((a, b) => {
+    const ap = pinnedSet.has(a.id) ? 1 : 0;
+    const bp = pinnedSet.has(b.id) ? 1 : 0;
+    if (ap !== bp) return bp - ap;
+    // created_at 기준 최근순(기존 서비스 정렬과 동일하게 유지 목적)
+    const at = new Date(a.created_at).getTime();
+    const bt = new Date(b.created_at).getTime();
+    if (Number.isFinite(at) && Number.isFinite(bt) && at !== bt) return bt - at;
+    return b.id - a.id;
+  });
+}, [items, pinVer]);
 
   async function onDelete(postId: number) {
     if (!isAdmin) return;
@@ -201,7 +250,7 @@ export default function DashboardBoardListPage() {
                   </td>
                 </tr>
               ) : (
-                items.map((it) => (
+                sortedItems.map((it) => (
                   <tr
                     key={it.id}
                     onClick={() => navigate(`/dashboard/board/${it.id}`)}
@@ -211,6 +260,9 @@ export default function DashboardBoardListPage() {
                     }}
                   >
                     <td style={{ padding: "10px 12px" }}>
+                      {Boolean((it as any).is_pinned ?? _isPinned(it.id)) && (
+                        <span title="상단 고정" style={{ marginRight: 8 }}>📌</span>
+                      )}
                       <span style={categoryBadgeStyle(it.category)}><span style={{ width: 8, height: 8, borderRadius: 999, display: "inline-block", background: it.category === "IDEA" ? "#0B5FA5" : "#1F7A1F" }} /><span>{categoryLabel(it.category)}</span></span>
                     </td>
                     <td style={{ padding: "10px 12px", fontWeight: 800 }}>{it.title}</td>
