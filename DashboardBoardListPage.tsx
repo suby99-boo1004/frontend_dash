@@ -260,7 +260,7 @@ const sortedItems = useMemo(() => {
                     }}
                   >
                     <td style={{ padding: "10px 12px" }}>
-                      {Boolean((it as any).is_pinned ?? _isPinned(it.id)) && (
+                      {_isPinned(it.id) && (
                         <span title="상단 고정" style={{ marginRight: 8 }}>📌</span>
                       )}
                       <span style={categoryBadgeStyle(it.category)}><span style={{ width: 8, height: 8, borderRadius: 999, display: "inline-block", background: it.category === "IDEA" ? "#0B5FA5" : "#1F7A1F" }} /><span>{categoryLabel(it.category)}</span></span>

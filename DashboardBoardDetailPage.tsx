@@ -65,8 +65,6 @@ export default function DashboardBoardDetailPage() {
   const { postId } = useParams();
   const { user } = useAuth() as any;
 
-  const canPin = [6, 7].includes(Number(user?.role?.id ?? user?.role_id ?? user?.roleId ?? user?.role?.role_id));
-
   const id = useMemo(() => Number(postId), [postId]);
   const [data, setData] = useState<DashboardDetailOut | null>(null);
   const [loading, setLoading] = useState(false);
@@ -99,8 +97,6 @@ const [isPinned, setIsPinned] = useState(false);
         setCategory(out.category);
         setTitle(out.title || "");
         setContent(out.content || "");
-        // ✅ pinned 상태(서버 우선, 없으면 로컬)
-        setIsPinned(Boolean((out as any).is_pinned ?? _isPinned(id)));
       } catch (e: any) {
         if (!alive) return;
         setError(e?.message || String(e));
@@ -118,10 +114,8 @@ const [isPinned, setIsPinned] = useState(false);
 
 useEffect(() => {
   if (!Number.isFinite(id) || id <= 0) return;
-  // 서버에서 is_pinned가 오면 그 값 사용, 아니면 로컬
-  const serverPinned = (data as any)?.is_pinned;
-  setIsPinned(Boolean(serverPinned ?? _isPinned(id)));
-}, [id, data]);
+  setIsPinned(_isPinned(id));
+}, [id]);
 
   const createdByLabel = useMemo(() => {
     return data?.created_by_name || "-";
@@ -204,40 +198,19 @@ useEffect(() => {
 
         <div className="hstack" style={{ gap: 8 }}>
 
-{canPin && (
 <label style={{ display: "flex", alignItems: "center", gap: 6, padding: "0 8px", borderRadius: 10, border: "1px solid rgba(0,0,0,0.10)", height: 32, fontWeight: 900 }}>
   <input
     type="checkbox"
     checked={isPinned}
-    onChange={async (e) => {
+    onChange={(e) => {
       const next = e.target.checked;
       setIsPinned(next);
-
-      // ✅ 1) 서버 저장(공용 pinned) - 관리자/운영자만 가능
-      try {
-        const res = await fetch(`/api/dashboard/posts/${id}/pin`, {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ is_pinned: next }),
-        });
-        if (!res.ok) {
-          const msg = await res.text();
-          throw new Error(msg || "상단 고정 저장 실패");
-        }
-        // 서버 저장 성공 시 로컬은 백업용으로만 동기화
-        _setPinned(id, next);
-        alert(next ? "상단 고정되었습니다." : "상단 고정이 해제되었습니다.");
-      } catch (err: any) {
-        // 서버가 아직 준비 안된 경우를 대비한 로컬 백업
-        _setPinned(id, next);
-        alert((err?.message ? `${err.message}
-` : "") + (next ? "상단 고정되었습니다.(로컬)" : "상단 고정 해제되었습니다.(로컬)"));
-      }
+      _setPinned(id, next);
+      alert(next ? "상단 고정되었습니다." : "상단 고정이 해제되었습니다.");
     }}
   />
   상단 고정
 </label>
-)}
           <button className="btn" onClick={() => navigate(-1)}>
             뒤로
           </button>
